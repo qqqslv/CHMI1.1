@@ -1,47 +1,88 @@
 import cv2
 import mediapipe as mp
+from tkinter import Tk, Label, Entry, Button
+import time
 
+# Настройка медиапайпа
 mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
-hands = mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7)
 
-def classify_gesture(landmarks):
-    thumb_tip = landmarks[4].x
-    index_tip = landmarks[8].y
-    middle_tip = landmarks[12].y
-    ring_tip = landmarks[16].y
-    pinky_tip = landmarks[20].y
+# Интерфейс приложения
+root = Tk()
+root.title(" ")
+input_field = Entry(root, font=("Arial", 24), width=20)
+input_field.pack(pady=20)
+current_letter_label = Label(root, text="A", font=("Arial", 48))
+current_letter_label.pack(pady=20)
 
-    if index_tip > landmarks[6].y and middle_tip > landmarks[10].y:
-        return 'W'
-    elif index_tip > landmarks[6].y and thumb_tip > landmarks[3].x:
-        return 'O'
-    return '_'
+# Переменные
+letters = list("АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЭЮЯ")
+current_index = 0
+input_text = ""
+last_action_time = 0
+DELAY = 0.7  # Задержка 500 мс
+
+# Управление жестами
+def process_gesture(landmarks):
+    global current_index, input_text, last_action_time
+    current_time = time.time()
+    thumb_tip = landmarks[4]
+    index_tip = landmarks[8]
+    middle_tip = landmarks[12]
+    ring_tip = landmarks[16]
+    pinky_tip = landmarks[20]
+
+    # Функция для проверки сгибания пальцев
+    def is_finger_bent(finger_tip, finger_base):
+        return finger_tip.y > finger_base.y
+
+    # Проверка сгибания большого пальца по оси X
+    def is_thumb_bent():
+        return thumb_tip.x > landmarks[3].x  # Сгибание по X
+
+    # Проверка жеста сохранения
+    def is_save_gesture():
+        return all(is_finger_bent(tip, base) for tip, base in zip([index_tip, middle_tip, ring_tip, pinky_tip], [landmarks[6], landmarks[10], landmarks[14], landmarks[18]])) and is_thumb_bent()
+
+    # Жесты
+    if current_time - last_action_time > DELAY:
+        # Жест "Подтверждение"
+        if is_save_gesture():
+            input_text += letters[current_index]
+            input_field.delete(0, 'end')
+            input_field.insert(0, input_text)
+            print(f"Жест сохранения: Текущий текст: {input_text}")
+            last_action_time = current_time
+        # Жест "Вперед"
+        elif is_thumb_bent() and not is_save_gesture():
+            current_index = (current_index + 1) % len(letters)
+            print("Жест вперед: Переход к следующей букве")
+            last_action_time = current_time
+        # Жест "Назад"
+        elif all(is_finger_bent(tip, base) for tip, base in zip([index_tip, middle_tip, ring_tip, pinky_tip], [landmarks[6], landmarks[10], landmarks[14], landmarks[18]])):
+            current_index = (current_index - 1) % len(letters)
+            print("Жест назад: Переход к предыдущей букве")
+            last_action_time = current_time
 
 
+    current_letter_label.config(text=letters[current_index])
+
+# Основной цикл
 cap = cv2.VideoCapture(0)
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
         break
 
-    # Отзеркалим изображение для удобства
     frame = cv2.flip(frame, 1)
+    results = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
-    # Преобразуем в RGB
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    result = hands.process(rgb_frame)
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            process_gesture(hand_landmarks.landmark)
 
-    if result.multi_hand_landmarks:
-        for hand_landmarks in result.multi_hand_landmarks:
-            mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-
-            landmarks = hand_landmarks.landmark
-            letter = classify_gesture(landmarks)
-
-            cv2.putText(frame, letter, (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
-
-    cv2.imshow('Gesture Typing', frame)
+    cv2.imshow("cam", frame)
+    root.update()  # Обновление интерфейса
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
